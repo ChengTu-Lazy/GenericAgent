@@ -65,26 +65,53 @@ class AutoReplySupervisor:
         except Exception:
             return {}
 
-    def _extract_question(self, loop_result, output_text):
-        data = (loop_result or {}).get('data') or {}
-        payload = data.get('data') if isinstance(data, dict) else {}
+    def _normalize_ask_user_payload(self, payload):
         if not isinstance(payload, dict):
-            payload = {}
-        question = payload.get('question', '')
+            return {}
+        question = str(payload.get('question', '') or '').strip()
         candidates = payload.get('candidates') or []
-        if question:
-            return question, candidates
-        m = re.search(r'ask_user\((\{.*?\})\)', output_text or '', re.DOTALL)
-        if not m:
-            return self._extract_natural_questions(output_text), []
-        try:
-            args = json.loads(m.group(1))
-        except Exception:
-            args = {}
-        question = args.get('question', '')
-        candidates = args.get('candidates') or []
-        if question:
-            return question, candidates
+        if not isinstance(candidates, list):
+            candidates = [candidates]
+        return {'question': question, 'candidates': candidates} if question else {}
+
+    def _extract_ask_user_payload(self, loop_result):
+        if not isinstance(loop_result, dict):
+            return {}
+        candidates = [loop_result.get('ask_user')]
+        data = loop_result.get('data')
+        if isinstance(data, dict):
+            candidates.extend([data, data.get('ask_user'), data.get('data')])
+        for payload in candidates:
+            normalized = self._normalize_ask_user_payload(payload)
+            if normalized:
+                return normalized
+        return {}
+
+    def _extract_ask_user_payload_from_text(self, output_text):
+        text = output_text or ''
+        inline_matches = re.findall(r'ask_user\((\{.*?\})\)', text, flags=re.DOTALL)
+        for snippet in reversed(inline_matches):
+            payload = self._normalize_ask_user_payload(self._parse_json_object(snippet))
+            if payload:
+                return payload
+        block_matches = re.findall(
+            r'Tool:\s*`ask_user`.*?`{3,}(?:text|json)?\s*(\{.*?\})\s*`{3,}',
+            text,
+            flags=re.DOTALL,
+        )
+        for snippet in reversed(block_matches):
+            payload = self._normalize_ask_user_payload(self._parse_json_object(snippet))
+            if payload:
+                return payload
+        return {}
+
+    def _extract_question(self, loop_result, output_text):
+        payload = self._extract_ask_user_payload(loop_result)
+        if payload:
+            return payload.get('question', ''), payload.get('candidates') or []
+        payload = self._extract_ask_user_payload_from_text(output_text)
+        if payload:
+            return payload.get('question', ''), payload.get('candidates') or []
         return self._extract_natural_questions(output_text), []
 
     def _extract_natural_questions(self, output_text):
@@ -100,6 +127,8 @@ class AutoReplySupervisor:
                 continue
             line = re.sub(r'^\s*(?:[-*]|\d+[\.\)\u3001\uFF09])\s*', '', line)
             if not line:
+                continue
+            if 'Tool:' in line or '`ask_user`' in line or 'Waiting for your answer' in line:
                 continue
             if '?' in line or '\uFF1F' in line:
                 lines.append(line)
@@ -159,7 +188,7 @@ class AutoReplySupervisor:
     def should_auto_stop(self, last_input, output_text):
         system = (
             "You are a supervisor for an autonomous agent UI.\n"
-            "Decide whether the current task is truly complete and the UI should disable both auto-reply and auto-cycle.\n"
+            "Decide whether the current task is truly complete and the UI should disable auto-follow.\n"
             "Return JSON only: {\"stop\": true/false, \"reason\": \"short reason\"}.\n"
             "Use stop=true only when the assistant has already completed the user's requested task or clearly states that no further action is needed.\n"
             "If the assistant is asking questions, waiting for confirmation, proposing next steps, or obvious follow-up work remains, return stop=false."
