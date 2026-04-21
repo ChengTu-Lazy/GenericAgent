@@ -69,10 +69,14 @@ class GenericAgent:
         os.makedirs(os.path.join(script_dir, 'temp'), exist_ok=True)
         self.lock = threading.Lock()
         self.task_dir = None
-        self.history = []; self.handler = None;
+        self.history = []
+        self.handler = None
         self.task_queue = queue.Queue()
-        self.is_running = False; self.stop_sig = False
-        self.llm_no = 0;  self.inc_out = False; self.verbose = True
+        self.is_running = False
+        self.stop_sig = False
+        self.llm_no = 0
+        self.inc_out = False
+        self.verbose = True
         self.peer_hint = True
         self.log_path = os.path.join(script_dir, f'temp/model_responses/model_responses_{int(time.time()*1e6)%1000000:06d}.txt')
         self.load_llm_sessions()
