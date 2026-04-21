@@ -1,4 +1,11 @@
-# 定时任务 SOP
+# 定时任务 SOP（计划任务 / 周期触发 / scheduler）
+
+## 何时使用
+当任务需要**定时执行、周期触发、延迟执行或系统级计划调度**时，查本 SOP。
+
+**与 autonomous_operation_sop 的区别**：本 SOP 解决“何时触发”；autonomous_operation_sop 更偏“如何自主连续执行”。
+
+**检索关键词**：schedule, scheduler, cron, 定时任务, 计划任务, 周期触发, 延迟执行, repeat
 
 目录：`../sche_tasks/` 放任务定义JSON，`../sche_tasks/done/` 放执行报告
 

@@ -39,13 +39,38 @@ def get_system_prompt():
     prompt += get_global_memory()
     return prompt
 
+def build_llm_clients():
+    mykeys, _changed = reload_mykeys()
+    llm_sessions = []
+    for k, cfg in mykeys.items():
+        if not any(x in k for x in ['api', 'config', 'cookie']):
+            continue
+        try:
+            if 'mixin' in k:
+                llm_sessions += [{'mixin_cfg': cfg}]
+            elif c := resolve_client(k):
+                llm_sessions += [c]
+        except:
+            pass
+    for i, s in enumerate(llm_sessions):
+        if isinstance(s, dict) and 'mixin_cfg' in s:
+            try:
+                mixin = MixinSession(llm_sessions, s['mixin_cfg'])
+                if isinstance(mixin._sessions[0], (NativeClaudeSession, NativeOAISession)):
+                    llm_sessions[i] = NativeToolClient(mixin)
+                else:
+                    llm_sessions[i] = ToolClient(mixin)
+            except Exception as e:
+                print(f'\n\n\n[ERROR] Failed to init MixinSession with cfg {s["mixin_cfg"]}: {e}!!!\n\n')
+    return llm_sessions
+
 class GenericAgent:
     def __init__(self):
         os.makedirs(os.path.join(script_dir, 'temp'), exist_ok=True)
         self.lock = threading.Lock()
         self.task_dir = None
-        self.history = []; self.handler = None; 
-        self.task_queue = queue.Queue() 
+        self.history = []; self.handler = None;
+        self.task_queue = queue.Queue()
         self.is_running = False; self.stop_sig = False
         self.llm_no = 0;  self.inc_out = False; self.verbose = True
         self.peer_hint = True
@@ -54,27 +79,38 @@ class GenericAgent:
 
     def load_llm_sessions(self):
         mykeys, changed = reload_mykeys()
-        if not changed and hasattr(self, 'llmclients'): return
-        try: oldhistory = self.llmclient.backend.history
-        except: oldhistory = None
+        if not changed and hasattr(self, 'llmclients'):
+            return
+        try:
+            oldhistory = self.llmclient.backend.history
+        except:
+            oldhistory = None
         llm_sessions = []
         for k, cfg in mykeys.items():
-            if not any(x in k for x in ['api', 'config', 'cookie']): continue
+            if not any(x in k for x in ['api', 'config', 'cookie']):
+                continue
             try:
-                if 'mixin' in k: llm_sessions += [{'mixin_cfg': cfg}]
-                elif c := resolve_client(k): llm_sessions += [c]
-            except: pass
+                if 'mixin' in k:
+                    llm_sessions += [{'mixin_cfg': cfg}]
+                elif c := resolve_client(k):
+                    llm_sessions += [c]
+            except:
+                pass
         for i, s in enumerate(llm_sessions):
             if isinstance(s, dict) and 'mixin_cfg' in s:
                 try:
                     mixin = MixinSession(llm_sessions, s['mixin_cfg'])
-                    if isinstance(mixin._sessions[0], (NativeClaudeSession, NativeOAISession)): llm_sessions[i] = NativeToolClient(mixin)
-                    else: llm_sessions[i] = ToolClient(mixin)
-                except Exception as e: print(f'\n\n\n[ERROR] Failed to init MixinSession with cfg {s["mixin_cfg"]}: {e}!!!\n\n')
+                    if isinstance(mixin._sessions[0], (NativeClaudeSession, NativeOAISession)):
+                        llm_sessions[i] = NativeToolClient(mixin)
+                    else:
+                        llm_sessions[i] = ToolClient(mixin)
+                except Exception as e:
+                    print(f'\n\n\n[ERROR] Failed to init MixinSession with cfg {s["mixin_cfg"]}: {e}!!!\n\n')
         self.llmclients = llm_sessions
-        self.llmclient = self.llmclients[self.llm_no%len(self.llmclients)]
-        if oldhistory: self.llmclient.backend.history = oldhistory
-    
+        self.llmclient = self.llmclients[self.llm_no % len(self.llmclients)]
+        if oldhistory:
+            self.llmclient.backend.history = oldhistory
+
     def next_llm(self, n=-1):
         self.load_llm_sessions()
         self.llm_no = ((self.llm_no + 1) if n < 0 else n) % len(self.llmclients)

@@ -1,4 +1,14 @@
-# adb_ui.py - 一键dump+解析Android UI (u2优先，原生fallback)
+# adb_ui.py - Android UI dump / 节点解析 / 点击自动化
+# 何时使用:
+# - 需要查看当前 Android 界面节点结构
+# - 需要按关键词查找可点击控件
+# - 需要获取节点中心坐标并执行 tap
+# - uiautomator2 可用时优先使用；失败时回退原生 dump
+# 检索关键词:
+# android ui, adb, uiautomator, dump hierarchy, mobile click, 节点解析, 点击坐标
+# 常用入口:
+# - ui(keyword=None, clickable_only=False, raw=False)
+# - tap(x, y)
 # u2 (uiautomator2) 不受idle限制，适合动画密集app（美团等）
 # 弹窗检测: ui(clickable_only=True, raw=True) 找全屏FrameLayout+底部小ImageView(关闭X)
 # 已知包名: 美团外卖=com.sankuai.meituan.takeoutnew 淘宝=com.taobao.taobao

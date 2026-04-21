@@ -1,4 +1,9 @@
-# Memory Scanner SOP
+# Memory Scanner SOP（进程内存扫描 / 动态字段定位）
+
+## 何时使用
+当需要在**进程运行态内存**中定位字符串、特征码、动态字段或上下文时，使用本 SOP。典型场景：界面上能看到但磁盘文件中找不到的文本、Hex 特征码扫描、YARA/pattern scan、差集法定位变化字段。
+
+**检索关键词**：process memory, memory scan, pattern scan, yara, 进程内存, 运行态字符串, 特征码, 动态字段, 上下文定位
 
 ## 1. 快速开始
 内存特征搜索工具，支持 Hex (CE 风格) 和 字符串匹配。特别提供 LLM 模式，方便大模型分析内存上下文。

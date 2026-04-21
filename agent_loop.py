@@ -15,6 +15,18 @@ class BaseHandler:
     def tool_before_callback(self, tool_name, args, response): pass
     def tool_after_callback(self, tool_name, args, response, ret): pass
     def turn_end_callback(self, response, tool_calls, tool_results, turn, next_prompt, exit_reason): return next_prompt
+    def add_done_hook(self, prompt: str) -> bool:
+        if not isinstance(prompt, str):
+            return False
+        prompt = prompt.strip()
+        if not prompt:
+            return False
+        if not hasattr(self, '_done_hooks') or self._done_hooks is None:
+            self._done_hooks = []
+        if prompt in self._done_hooks:
+            return False
+        self._done_hooks.append(prompt)
+        return True
     def dispatch(self, tool_name, args, response, index=0, tool_num=1):
         method_name = f"do_{tool_name}"
         if hasattr(self, method_name):

@@ -1,4 +1,11 @@
-# Web 工具链初始化执行 SOP
+# Web 工具链启用与修复 SOP
+
+若 web_scan 和 web_execute_js 已测试可用，无需执行此 SOP。
+
+## 何时使用
+当 `web_scan` / `web_execute_js` 无法使用，或浏览器扩展、脚本注入、CSP 配置异常时，优先查本 SOP。典型场景：Web 工具首次启用、扩展安装后仍不生效、JS 注入失败、页面 CSP 导致脚本能力受限、浏览器升级后工具链失效。
+
+**检索关键词**：web setup, web tools broken, extension failed, CSP, web_scan不可用, web_execute_js不可用, 扩展异常, 注入失败
 
 若 web_scan 和 web_execute_js 已测试可用，无需执行此 SOP。
 仅供初始安装时，code_run 可用但 web 工具尚未配置的场景。

@@ -1,4 +1,4 @@
-import os, sys, subprocess
+import os, sys, subprocess, html
 from urllib.request import urlopen
 from urllib.parse import quote
 if sys.stdout is None: sys.stdout = open(os.devnull, "w")
@@ -51,6 +51,11 @@ agent = init()
 st.title("🖥️ Cowork")
 
 st.session_state.setdefault('autonomous_enabled', False)
+st.session_state.setdefault('auto_reply_enabled', False)
+st.session_state.setdefault('auto_cycle_enabled', False)
+st.session_state.setdefault('auto_stop_on_done_enabled', False)
+st.session_state.setdefault('last_prompt', '')
+st.session_state.setdefault('streaming', False)
 
 @st.fragment
 def render_sidebar():
@@ -91,23 +96,35 @@ def render_sidebar():
             _pet_req(f'msg={quote(chr(10).join(parts))}')
             if ctx.get('exit_reason'): _pet_req('state=idle')
         agent._turn_end_hooks['pet'] = _pet_hook
-        st.toast("Desktop pet started")
-    
-    if LANG == 'zh':
-        st.divider()
-        if st.button("开始空闲自主行动"):
-            st.session_state.last_reply_time = int(time.time()) - 1800
-            st.toast("已将上次回复时间设为1800秒前"); st.rerun()
-        if st.session_state.autonomous_enabled:
-            if st.button("⏸️ 禁止自主行动"):
-                st.session_state.autonomous_enabled = False
-                st.toast("⏸️ 已禁止自主行动"); st.rerun()
-            st.caption("🟢 自主行动运行中，会在你离开它30分钟后自动进行")
-        else:
-            if st.button("▶️ 允许自主行动", type="primary"):
-                st.session_state.autonomous_enabled = True
-                st.toast("✅ 已允许自主行动"); st.rerun()
-            st.caption("🔴 自主行动已停止")
+        st.toast("桌面宠物已启动" if LANG == 'zh' else "Desktop pet started")
+
+    st.divider()
+    auto_reply = st.checkbox("自动代答 ask_user", value=st.session_state.auto_reply_enabled, help="当 Agent 主动提问或一轮结束后，自动生成下一条输入继续推进")
+    if auto_reply != st.session_state.auto_reply_enabled:
+        st.session_state.auto_reply_enabled = auto_reply
+        st.toast("已开启自动代答" if auto_reply else "已关闭自动代答"); st.rerun()
+    auto_cycle = st.checkbox("自动续跑", value=st.session_state.auto_cycle_enabled, help="兼容旧开关；开启后也会在一轮结束后自动继续")
+    if auto_cycle != st.session_state.auto_cycle_enabled:
+        st.session_state.auto_cycle_enabled = auto_cycle
+        st.toast("已开启自动续跑" if auto_cycle else "已关闭自动续跑"); st.rerun()
+    auto_stop = st.checkbox("完成后自动停", value=st.session_state.auto_stop_on_done_enabled, help="由监督模型判断任务已完成后自动关闭自动代答和自动续跑")
+    if auto_stop != st.session_state.auto_stop_on_done_enabled:
+        st.session_state.auto_stop_on_done_enabled = auto_stop
+        st.toast("已开启完成后自动停" if auto_stop else "已关闭完成后自动停"); st.rerun()
+
+    if st.button("开始空闲自主行动"):
+        st.session_state.last_reply_time = int(time.time()) - 1800
+        st.toast("已将上次回复时间设为1800秒前"); st.rerun()
+    if st.session_state.autonomous_enabled:
+        if st.button("⏸️ 禁止自主行动"):
+            st.session_state.autonomous_enabled = False
+            st.toast("⏸️ 已禁止自主行动"); st.rerun()
+        st.caption("🟢 自主行动运行中，会在你离开它30分钟后自动进行")
+    else:
+        if st.button("▶️ 允许自主行动", type="primary"):
+            st.session_state.autonomous_enabled = True
+            st.toast("✅ 已允许自主行动"); st.rerun()
+        st.caption("🔴 自主行动已停止")
 with st.sidebar: render_sidebar()
 
 def fold_turns(text):
@@ -328,13 +345,29 @@ if prompt := st.chat_input("any task?"):
         _reset_and_rerun()
     # Regular prompt: any in-flight task will be aborted by the finally block in
     # agent_backend_stream when StopException interrupts the prior generator.
+    st.session_state.last_prompt = prompt
+    st.session_state.streaming = True
     st.session_state.messages.append({"role": "user", "content": prompt})
     if hasattr(agent, '_pet_req') and not prompt.startswith('/'): agent._pet_req('state=walk')
     with st.chat_message("user"): st.markdown(prompt)
     render_main_stream(prompt)
 elif st.session_state.get('display_queue') is not None:
     # No new prompt but a task is mid-flight (typically a /btw rerun) — resume drain.
+    st.session_state.streaming = True
     render_main_stream()
-
 if st.session_state.autonomous_enabled:
     st.markdown(f"""<div id="last-reply-time" style="display:none">{st.session_state.get('last_reply_time', int(time.time()))}</div>""", unsafe_allow_html=True)
+
+last_assistant = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "assistant"), "")
+st.markdown(
+    f"""
+    <div id="last-user-prompt" style="display:none">{html.escape(st.session_state.get('last_prompt', ''))}</div>
+    <div id="last-assistant-reply" style="display:none">{html.escape(last_assistant)}</div>
+    <div id="streaming-flag" style="display:none">{1 if st.session_state.get('streaming', False) else 0}</div>
+    <div id="autonomous-enabled" style="display:none">{1 if st.session_state.get('autonomous_enabled', False) else 0}</div>
+    <div id="auto-reply-enabled" style="display:none">{1 if st.session_state.get('auto_reply_enabled', False) else 0}</div>
+    <div id="auto-cycle-enabled" style="display:none">{1 if st.session_state.get('auto_cycle_enabled', False) else 0}</div>
+    <div id="auto-stop-on-done-enabled" style="display:none">{1 if st.session_state.get('auto_stop_on_done_enabled', False) else 0}</div>
+    """,
+    unsafe_allow_html=True
+)

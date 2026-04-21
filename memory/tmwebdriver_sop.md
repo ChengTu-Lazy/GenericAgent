@@ -1,4 +1,9 @@
-# TMWebDriver SOP
+# TMWebDriver SOP（浏览器疑难交互 / CDP / 上传 / iframe）
+
+## 何时使用
+当浏览器自动化遇到常规 `web_scan` / `web_execute_js` 难以处理的场景时，优先查本 SOP，尤其包括：文件上传、新标签页/跨 tab、跨域 iframe、PDF/blob 下载、HttpOnly Cookie、autofill、需要 CDP 或物理坐标兜底的点击。
+
+**检索关键词**：upload, iframe, blob, pdf, cookie, HttpOnly, autofill, CDP, 新标签页, 跨tab, 文件上传, 浏览器疑难交互
 
 - 直接用web_scan/web_execute_js工具。本文件只记录特性和坑。
 - 底层：`../TMWebDriver.py`通过Chrome扩展接管用户浏览器（保留登录态/Cookie）
