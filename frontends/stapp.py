@@ -35,9 +35,49 @@ st.title("🖥️ Cowork")
 if 'autonomous_enabled' not in st.session_state: st.session_state.autonomous_enabled = False
 if 'auto_reply_enabled' not in st.session_state: st.session_state.auto_reply_enabled = False
 if 'auto_cycle_enabled' not in st.session_state: st.session_state.auto_cycle_enabled = False
+if 'auto_follow_enabled' not in st.session_state:
+    st.session_state.auto_follow_enabled = bool(
+        st.session_state.auto_reply_enabled or st.session_state.auto_cycle_enabled
+    )
 if 'auto_stop_on_done_enabled' not in st.session_state: st.session_state.auto_stop_on_done_enabled = False
 if 'last_prompt' not in st.session_state: st.session_state.last_prompt = ''
 if 'streaming' not in st.session_state: st.session_state.streaming = False
+
+def set_auto_follow(enabled):
+    enabled = bool(enabled)
+    st.session_state.auto_follow_enabled = enabled
+    st.session_state.auto_reply_enabled = enabled
+    st.session_state.auto_cycle_enabled = enabled
+
+set_auto_follow(st.session_state.auto_follow_enabled)
+
+def _parse_json_dict(text):
+    text = (text or '').strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def extract_ask_user_payload(output_text):
+    text = output_text or ''
+    inline_matches = re.findall(r'ask_user\((\{.*?\})\)', text, flags=re.DOTALL)
+    for snippet in reversed(inline_matches):
+        payload = _parse_json_dict(snippet)
+        if payload.get('question'):
+            return payload
+    block_matches = re.findall(
+        r'Tool:\s*`ask_user`.*?`{3,}(?:text|json)?\s*(\{.*?\})\s*`{3,}',
+        text,
+        flags=re.DOTALL,
+    )
+    for snippet in reversed(block_matches):
+        payload = _parse_json_dict(snippet)
+        if payload.get('question'):
+            return payload
+    return {}
 
 @st.fragment
 def render_sidebar():
@@ -80,15 +120,11 @@ def render_sidebar():
         st.toast("桌面宠物已启动")
 
     st.divider()
-    auto_reply = st.checkbox("自动代答 ask_user", value=st.session_state.auto_reply_enabled, help="当 Agent 主动提问或一轮结束后，自动生成下一条输入继续推进")
-    if auto_reply != st.session_state.auto_reply_enabled:
-        st.session_state.auto_reply_enabled = auto_reply
-        st.toast("已开启自动代答" if auto_reply else "已关闭自动代答"); st.rerun()
-    auto_cycle = st.checkbox("自动续跑", value=st.session_state.auto_cycle_enabled, help="兼容旧开关；开启后也会在一轮结束后自动继续")
-    if auto_cycle != st.session_state.auto_cycle_enabled:
-        st.session_state.auto_cycle_enabled = auto_cycle
-        st.toast("已开启自动续跑" if auto_cycle else "已关闭自动续跑"); st.rerun()
-    auto_stop = st.checkbox("完成后自动停", value=st.session_state.auto_stop_on_done_enabled, help="由监督模型判断任务已完成后自动关闭自动代答和自动续跑")
+    auto_follow = st.checkbox("自动跟进（代答 + 续跑）", value=st.session_state.auto_follow_enabled, help="Agent 主动 ask_user 时自动代答；一轮结束后自动生成下一条输入继续推进。")
+    if auto_follow != st.session_state.auto_follow_enabled:
+        set_auto_follow(auto_follow)
+        st.toast("已开启自动跟进" if auto_follow else "已关闭自动跟进"); st.rerun()
+    auto_stop = st.checkbox("完成后自动停", value=st.session_state.auto_stop_on_done_enabled, help="由监督模型判断任务已完成后自动关闭自动跟进")
     if auto_stop != st.session_state.auto_stop_on_done_enabled:
         st.session_state.auto_stop_on_done_enabled = auto_stop
         st.toast("已开启完成后自动停" if auto_stop else "已关闭完成后自动停"); st.rerun()
@@ -241,14 +277,19 @@ if st.session_state.autonomous_enabled:
     st.markdown(f"""<div id="last-reply-time" style="display:none">{st.session_state.get('last_reply_time', int(time.time()))}</div>""", unsafe_allow_html=True)
 
 last_assistant = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "assistant"), "")
+last_ask_user = extract_ask_user_payload(last_assistant)
+assistant_revision = sum(1 for m in st.session_state.messages if m["role"] == "assistant")
 st.markdown(
     f"""
     <div id="last-user-prompt" style="display:none">{html.escape(st.session_state.get('last_prompt', ''))}</div>
     <div id="last-assistant-reply" style="display:none">{html.escape(last_assistant)}</div>
+    <div id="assistant-revision" style="display:none">{assistant_revision}</div>
+    <div id="last-ask-user-payload" style="display:none">{html.escape(json.dumps(last_ask_user, ensure_ascii=False))}</div>
     <div id="streaming-flag" style="display:none">{1 if st.session_state.get('streaming', False) else 0}</div>
     <div id="autonomous-enabled" style="display:none">{1 if st.session_state.get('autonomous_enabled', False) else 0}</div>
-    <div id="auto-reply-enabled" style="display:none">{1 if st.session_state.get('auto_reply_enabled', False) else 0}</div>
-    <div id="auto-cycle-enabled" style="display:none">{1 if st.session_state.get('auto_cycle_enabled', False) else 0}</div>
+    <div id="auto-follow-enabled" style="display:none">{1 if st.session_state.get('auto_follow_enabled', False) else 0}</div>
+    <div id="auto-reply-enabled" style="display:none">{1 if st.session_state.get('auto_follow_enabled', False) else 0}</div>
+    <div id="auto-cycle-enabled" style="display:none">{1 if st.session_state.get('auto_follow_enabled', False) else 0}</div>
     <div id="auto-stop-on-done-enabled" style="display:none">{1 if st.session_state.get('auto_stop_on_done_enabled', False) else 0}</div>
     """,
     unsafe_allow_html=True

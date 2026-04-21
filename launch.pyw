@@ -1,4 +1,4 @@
-import webview, threading, subprocess, sys, time, os, ctypes, atexit, socket, random, re, traceback
+import webview, threading, subprocess, sys, time, os, ctypes, atexit, socket, random, re, traceback, json
 
 from agentmain import build_llm_clients
 from self_supervisor import AutoReplySupervisor
@@ -64,8 +64,11 @@ def get_ui_state():
                 last_reply_time: parseInt(txt('last-reply-time') || '0') || 0,
                 last_user_prompt: txt('last-user-prompt'),
                 last_assistant_reply: txt('last-assistant-reply'),
+                assistant_revision: parseInt(txt('assistant-revision') || '0') || 0,
+                last_ask_user_payload: txt('last-ask-user-payload'),
                 streaming: txt('streaming-flag') === '1',
                 autonomous_enabled: txt('autonomous-enabled') === '1',
+                auto_follow_enabled: txt('auto-follow-enabled') === '1',
                 auto_reply_enabled: txt('auto-reply-enabled') === '1',
                 auto_cycle_enabled: txt('auto-cycle-enabled') === '1',
                 auto_stop_on_done_enabled: txt('auto-stop-on-done-enabled') === '1'
@@ -74,9 +77,26 @@ def get_ui_state():
     """)
     if raw_state is None:
         return {}
-    if isinstance(raw_state, dict): return dict(raw_state)
-    try: return dict(raw_state)
-    except Exception: return {}
+    if isinstance(raw_state, dict):
+        state = dict(raw_state)
+    else:
+        try: state = dict(raw_state)
+        except Exception: return {}
+    state['auto_follow_enabled'] = bool(
+        state.get('auto_follow_enabled')
+        or state.get('auto_reply_enabled')
+        or state.get('auto_cycle_enabled')
+    )
+    payload_text = (state.get('last_ask_user_payload') or '').strip()
+    if payload_text:
+        try:
+            payload = json.loads(payload_text)
+            state['last_ask_user_payload'] = payload if isinstance(payload, dict) else {}
+        except Exception:
+            state['last_ask_user_payload'] = {}
+    else:
+        state['last_ask_user_payload'] = {}
+    return state
 
 def looks_like_ask_user(text):
     lowered = (text or '').lower()
@@ -102,12 +122,13 @@ def set_ui_toggle(label_text, enabled):
         }})();""")
 
 def disable_auto_followups():
+    set_ui_toggle("自动跟进", False)
     set_ui_toggle("自动代答 ask_user", False)
     set_ui_toggle("自动续跑", False)
 
 def idle_monitor(supervisor):
     last_trigger_time = 0
-    last_handled_reply = ''
+    last_handled_revision = -1
     while True:
         time.sleep(5)
         try:
@@ -120,12 +141,12 @@ def idle_monitor(supervisor):
             last_reply = gs('last_reply_time', 0) or int(time.time())
             last_user_prompt = gs('last_user_prompt', '')
             last_assistant_reply = gs('last_assistant_reply', '')
+            assistant_revision = gs('assistant_revision', 0)
+            ask_user_payload = gs('last_ask_user_payload', {}) or {}
             autonomous_enabled = gs('autonomous_enabled', False)
-            auto_reply_enabled = gs('auto_reply_enabled', False)
-            auto_cycle_enabled = gs('auto_cycle_enabled', False)
+            auto_follow_enabled = gs('auto_follow_enabled', False)
             auto_stop_on_done_enabled = gs('auto_stop_on_done_enabled', False)
-            auto_follow_enabled = auto_reply_enabled or auto_cycle_enabled
-            if not last_assistant_reply or last_assistant_reply == last_handled_reply:
+            if not last_assistant_reply or assistant_revision <= last_handled_revision:
                 if autonomous_enabled and now - last_reply > AUTO_IDLE_SECONDS:
                     print('[Idle Monitor] Detected idle state, injecting task...')
                     inject("[AUTO]🤖 用户已经离开超过30分钟，作为自主智能体，请阅读自动化sop，执行自动任务。")
@@ -137,25 +158,22 @@ def idle_monitor(supervisor):
                     print(f'[Idle Monitor] AI decided to stop auto followups: {stop_reason}')
                     disable_auto_followups()
                     last_trigger_time = now
-                    last_handled_reply = last_assistant_reply
-                    continue
-            if supervisor is not None and auto_reply_enabled and looks_like_ask_user(last_assistant_reply):
-                generated, reason = supervisor.generate_next_input(last_user_prompt, last_assistant_reply, None)
-                if generated:
-                    print(f'[UI AutoReply/{reason}] {generated[:100]}')
-                    inject(generated)
-                    last_trigger_time = now
-                    last_handled_reply = last_assistant_reply
+                    last_handled_revision = assistant_revision
                     continue
             if supervisor is not None and auto_follow_enabled:
-                generated, reason = supervisor.generate_next_input(last_user_prompt, last_assistant_reply, {'result': 'CURRENT_TASK_DONE'})
+                loop_result = None
+                if isinstance(ask_user_payload, dict) and ask_user_payload.get('question'):
+                    loop_result = {'result': 'INTERRUPT', 'ask_user': ask_user_payload}
+                elif not looks_like_ask_user(last_assistant_reply):
+                    loop_result = {'result': 'CURRENT_TASK_DONE'}
+                generated, reason = supervisor.generate_next_input(last_user_prompt, last_assistant_reply, loop_result)
                 if generated:
-                    print(f'[UI AutoReply/{reason}] {generated[:100]}')
+                    print(f'[UI AutoFollow/{reason}] {generated[:100]}')
                     inject(generated)
                     last_trigger_time = now
-                    last_handled_reply = last_assistant_reply
+                    last_handled_revision = assistant_revision
                     continue
-            last_handled_reply = last_assistant_reply
+            last_handled_revision = assistant_revision
         except Exception as e:
             print(f'[Idle Monitor] Error: {e!r}')
             print(traceback.format_exc())
