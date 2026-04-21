@@ -1,4 +1,4 @@
-import os, sys, subprocess
+import os, sys, subprocess, html
 from urllib.request import urlopen
 from urllib.parse import quote
 if sys.stdout is None: sys.stdout = open(os.devnull, "w")
@@ -33,6 +33,11 @@ agent = init()
 st.title("🖥️ Cowork")
 
 if 'autonomous_enabled' not in st.session_state: st.session_state.autonomous_enabled = False
+if 'auto_reply_enabled' not in st.session_state: st.session_state.auto_reply_enabled = False
+if 'auto_cycle_enabled' not in st.session_state: st.session_state.auto_cycle_enabled = False
+if 'auto_stop_on_done_enabled' not in st.session_state: st.session_state.auto_stop_on_done_enabled = False
+if 'last_prompt' not in st.session_state: st.session_state.last_prompt = ''
+if 'streaming' not in st.session_state: st.session_state.streaming = False
 
 @st.fragment
 def render_sidebar():
@@ -73,8 +78,21 @@ def render_sidebar():
             if ctx.get('exit_reason'): _pet_req('state=idle')
         agent._turn_end_hooks['pet'] = _pet_hook
         st.toast("桌面宠物已启动")
-    
+
     st.divider()
+    auto_reply = st.checkbox("自动代答 ask_user", value=st.session_state.auto_reply_enabled, help="当 Agent 主动提问或一轮结束后，自动生成下一条输入继续推进")
+    if auto_reply != st.session_state.auto_reply_enabled:
+        st.session_state.auto_reply_enabled = auto_reply
+        st.toast("已开启自动代答" if auto_reply else "已关闭自动代答"); st.rerun()
+    auto_cycle = st.checkbox("自动续跑", value=st.session_state.auto_cycle_enabled, help="兼容旧开关；开启后也会在一轮结束后自动继续")
+    if auto_cycle != st.session_state.auto_cycle_enabled:
+        st.session_state.auto_cycle_enabled = auto_cycle
+        st.toast("已开启自动续跑" if auto_cycle else "已关闭自动续跑"); st.rerun()
+    auto_stop = st.checkbox("完成后自动停", value=st.session_state.auto_stop_on_done_enabled, help="由监督模型判断任务已完成后自动关闭自动代答和自动续跑")
+    if auto_stop != st.session_state.auto_stop_on_done_enabled:
+        st.session_state.auto_stop_on_done_enabled = auto_stop
+        st.toast("已开启完成后自动停" if auto_stop else "已关闭完成后自动停"); st.rerun()
+
     if st.button("开始空闲自主行动"):
         st.session_state.last_reply_time = int(time.time()) - 1800
         st.toast("已将上次回复时间设为1800秒前"); st.rerun()
@@ -195,6 +213,8 @@ if prompt := st.chat_input("any task?"):
             {"role": "assistant", "content": handle_frontend_command(agent, cmd), "time": ts},
         ]
         _reset_and_rerun()
+    st.session_state.last_prompt = prompt
+    st.session_state.streaming = True
     st.session_state.messages.append({"role": "user", "content": prompt})
     if hasattr(agent, '_pet_req') and not prompt.startswith('/'): agent._pet_req('state=walk')
     with st.chat_message("user"): st.markdown(prompt)
@@ -215,6 +235,21 @@ if prompt := st.chat_input("any task?"):
             if i < len(segs) - 1: live = st.empty()
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.session_state.last_reply_time = int(time.time())
+    st.session_state.streaming = False
 
 if st.session_state.autonomous_enabled:
     st.markdown(f"""<div id="last-reply-time" style="display:none">{st.session_state.get('last_reply_time', int(time.time()))}</div>""", unsafe_allow_html=True)
+
+last_assistant = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "assistant"), "")
+st.markdown(
+    f"""
+    <div id="last-user-prompt" style="display:none">{html.escape(st.session_state.get('last_prompt', ''))}</div>
+    <div id="last-assistant-reply" style="display:none">{html.escape(last_assistant)}</div>
+    <div id="streaming-flag" style="display:none">{1 if st.session_state.get('streaming', False) else 0}</div>
+    <div id="autonomous-enabled" style="display:none">{1 if st.session_state.get('autonomous_enabled', False) else 0}</div>
+    <div id="auto-reply-enabled" style="display:none">{1 if st.session_state.get('auto_reply_enabled', False) else 0}</div>
+    <div id="auto-cycle-enabled" style="display:none">{1 if st.session_state.get('auto_cycle_enabled', False) else 0}</div>
+    <div id="auto-stop-on-done-enabled" style="display:none">{1 if st.session_state.get('auto_stop_on_done_enabled', False) else 0}</div>
+    """,
+    unsafe_allow_html=True
+)
